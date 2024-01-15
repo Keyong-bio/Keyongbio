@@ -1,0 +1,295 @@
+---
+title: "Assignment course PINT"
+author: "Keyong Deng"
+format: pdf
+editor: visual
+---
+
+Keyong Deng, Department of Clinical Epidemiology
+
+## Section1
+
+### Statistical Analysis
+
+1.  Model Development
+2.  Internal validation
+
+```{r}
+library(rstatix)
+library(Hmisc)
+library(ggplot2)
+library(dplyr)
+library(skimr)
+
+df <- read.table(file = "data_assignment_PINT_2023.txt", header = T)
+df_summary <- df %>% get_summary_stats()
+skim(df)
+
+# table(df$vacc, useNA = "always")
+# Using the complete cases analysis
+df$vacc[which(is.na(df$vacc))] <- 0
+
+str(df)
+
+## change variables into factors: "hospital", "sex", "ICU", "oxygen", "vacc", "ThrombEvent", "education", "DM"
+colnames(df)
+
+# table(df$age, df$Event) ## age >= 67 years didn't return back to work
+```
+
+1.  Descriptive of the data set
+
+    ```{r}
+
+    library(patchwork)
+    summary(df$age)
+    summary(df$weight)
+    summary(df$height) ## there are some error in the data
+    # df1 <- df %>% 
+    #   dplyr::filter(height > 2)
+    df$height <- ifelse(df$height > 2, df$height/100, df$height)
+
+    df$BMI <- df$weight/(df$height)^2
+    p1 <- ggplot(aes(df$age, color = as.factor(df$Event)),data=df) +geom_density()+theme_classic()
+    p2 <- ggplot(aes(df$Tiff, color = as.factor(df$Event)),data=df) +geom_density()+theme_classic()
+    p3 <- ggplot(aes(df$LOS, color = as.factor(df$Event)),data=df) +geom_density()+theme_classic()
+    p4 <- ggplot(aes(df$BMI, color = as.factor(df$Event)),data=df) +geom_density()+theme_classic()
+    P <- (p1 + p2) / (p3 + p4)
+    P
+    ```
+
+2.  Baseline Characteristic
+
+    ```{r}
+    ## select only those below the age 68
+    df <- df[df$age < 68,]
+
+    table(df$Event)
+    # df$Event[which(df$Time>180)] <- 0
+
+    # ggplot(aes(df$age, color = as.factor(df$Event)),data=df) +geom_density()+theme_classic()
+
+    library(gtsummary)
+    cat_vars <- c("sex","ICU", "oxygen", "vacc", "ThrombEvent", "education", "DM",  "MRI", "Event" )
+    base_df1 <- df %>% 
+      mutate_at(vars(one_of(cat_vars)), funs(factor(.))) ## change those cat_vars into categorical variable
+    str(base_df1)
+    table(base_df1$Event)
+
+    ## 1. developed data
+    base_df1_dev <- base_df1[base_df1$hospital == 1,]
+    base_df1_val <- base_df1[base_df1$hospital == 2,]
+    table(base_df1_val$hospital)
+
+    base_df1_dev %>% 
+      select(age, BMI, LOS, Tiff, cat_vars) %>%                      # keep only columns of interest
+      tbl_summary(                        # create summary table
+        type = all_continuous() ~ "continuous2",       
+        # indicate that you want to print multiple statistics 
+        statistic = all_continuous() ~ c(
+          "{mean} ({sd})",                            
+          # line 1: mean and SD
+          "{median} ({p25}, {p75})",                   
+          # line 2: median and IQR
+          "{min}, {max}") 
+          # line 3: min and max
+        )
+
+    base_df1_dev %>% 
+      select(age, BMI, LOS, Tiff, cat_vars) %>%                      # keep only columns of interest
+      tbl_summary( 
+         by = Event ,
+         # create summary table
+        type = all_continuous() ~ "continuous2",       
+        # indicate that you want to print multiple statistics 
+        statistic = list(all_continuous() ~ c(
+          "{mean} ({sd})",                            
+          # line 1: mean and SD
+          "{median} ({p25}, {p75})",                   
+          # line 2: median and IQR
+          "{min}, {max}") 
+          # line 3: min and max
+        ,all_categorical() ~ "{n} ({p}%)"),
+        digits = all_continuous() ~ 2
+        ) %>% 
+      add_p(pvalue_fun = ~ style_pvalue(.x, digits = 2))
+
+
+    base_df1_val %>% 
+      select(age, BMI, LOS, Tiff, cat_vars) %>%                      # keep only columns of interest
+      tbl_summary( 
+         # create summary table
+        type = all_continuous() ~ "continuous2",       
+        # indicate that you want to print multiple statistics 
+        statistic = list(all_continuous() ~ c(
+          "{mean} ({sd})",                            
+          # line 1: mean and SD
+          "{median} ({p25}, {p75})",                   
+          # line 2: median and IQR
+          "{min}, {max}") 
+          # line 3: min and max
+        ,all_categorical() ~ "{n} ({p}%)"),
+        digits = all_continuous() ~ 2
+        ) 
+
+    base_df1_val %>% 
+      select(age, BMI, LOS, Tiff, cat_vars) %>%                      # keep only columns of interest
+      tbl_summary( 
+         by = Event ,
+         # create summary table
+        type = all_continuous() ~ "continuous2",       
+        # indicate that you want to print multiple statistics 
+        statistic = list(all_continuous() ~ c(
+          "{mean} ({sd})",                            
+          # line 1: mean and SD
+          "{median} ({p25}, {p75})",                   
+          # line 2: median and IQR
+          "{min}, {max}") 
+          # line 3: min and max
+        ,all_categorical() ~ "{n} ({p}%)"),
+        digits = all_continuous() ~ 2
+        ) %>% 
+        add_p(pvalue_fun = ~ style_pvalue(.x, digits = 2))
+    ```
+
+## Model development
+
+```{r}
+###
+
+apply(base_df1_dev2, 1, as.numeric)
+m1 <- Event ~ age + sex + ICU + oxygen + Tiff + vacc + ThrombEvent + LOS + education + DM + MRI + BMI
+(full_model <- lrm(as.formula(m1),data=base_df1_dev2,x=T,y=T)) ## logistic regression model
+ml_coef <- t(t(coef(full_model)))
+ml_coef
+
+library(pROC)
+model <- glm(as.formula(m1), data = base_df1_dev, family = "binomial")
+probabilities <- predict(model, newdata = base_df1_dev, type = "response")
+roc_obj <- roc(base_df1_dev$Event, probabilities)
+auc_value <- auc(roc_obj)
+print(auc_value)
+
+# # Convert glm model to lrm-like object (if you used glm)
+# lrm_model <- as.lrm(model)
+# 
+# # Create calibration plot
+# cal_plot <- calibrate(lrm_model, method="boot", B=1000)
+# plot(cal_plot)
+
+
+# MLE with backward elimination:
+# selection <- fastbw(full_model,rule="p",sls=.05)
+# (bw_model <- lrm(as.formula(paste("Event~",paste(selection$names.kept,collapse="+"))),data=base_df1_dev,x=T,y=T))
+
+# internal validation - bootstrap full model:
+set.seed(1)
+(internalfull_model <- validate(full_model,B=1000))
+0.7841/2 + 0.5
+
+# set.seed(1)
+# (internvalbw_model <- validate(full_model,bw=T,rule="p",sls=.05,B=1000))
+# 0.7390/2 + 0.5
+
+(firth_model <- logistf(as.formula(m1),data=base_df1_dev,firth=T))
+firth_coef <- t(t(firth_model$coef))
+
+
+# LASSO
+library(glmnet)
+base_df1_dev2 <- base_df1_dev[,-c(1,2,8,9, 15, 16)]
+apply(base_df1_dev2, 2, as.numeric)
+
+lasso_tuning_parameter <-
+  cv.glmnet(x=apply(as.matrix(base_df1_dev2[,-11]), 2, as.numeric),
+            y=as.numeric(as.matrix(base_df1_dev2[,11])),
+                                    family="binomial",
+                                    type.measure="mse",
+                                    alpha=1,
+                                    nfolds=nrow(base_df1_dev2))$lambda.min
+lasso_model <-glmnet(x=apply(as.matrix(base_df1_dev2[,-11]),2, as.numeric),
+                     y=as.numeric(as.matrix(base_df1_dev2[,11])),
+                     family="binomial",
+                     lambda=lasso_tuning_parameter,
+                     alpha=1)
+lasso_coef <- coef(lasso_model)
+lasso_coef
+# (internallasso_model <- validate(lasso_model,B=200))
+# boot_fn <- function(data, indices) {
+#   d <- data[indices,]  # Resample with replacement
+#   fit <- glmnet(x[d,], y[d], alpha = 1, lambda = lambda_chosen)
+#   return(coef(fit))
+# }
+
+set.seed(123)  # for reproducibility
+boot_results <- boot(data = your_data, statistic = boot_fn, R = 1000) 
+
+coef <- as.matrix(coef(lasso_model, s = lasso_tuning_parameter))
+options(scipen = 999)
+round(exp(coef[,1]),2)
+
+predfull_model_internal <- 1/(1+exp(-predict(lasso_model, newx=apply(as.matrix(base_df1_dev2[,-11]), 2, as.numeric))))
+
+## 
+predfull_model <- 1/(1+exp(-predict(full_model, newdata=base_df1_val2)))
+# str(base_df1_val)
+
+val.prob(predfull_model_internal, as.numeric(base_df1_dev2$Event))
+
+base_df1_val2 <- base_df1_val[,-c(1,2,8,9,15,16)]
+apply(base_df1_val2, 2, as.numeric)
+# external validation Lasso model
+predlasso_model <- 1/(1+exp(-predict(lasso_model, newx=apply(as.matrix(base_df1_val2[,-11]), 2, as.numeric))))
+val.prob(predlasso_model,base_df1_val2$Event)
+
+```
+
+
+```{r}
+pkgs <- c("survival", "rms", 
+          "timeROC", "riskRegression")
+vapply(pkgs, function(pkg) {
+  if (!require(pkg, character.only = TRUE)) install.packages(pkg)
+  require(pkg, character.only = TRUE, quietly = TRUE)
+}, FUN.VALUE = logical(length = 1L))
+
+
+base_df1_dev <- base_df1_dev %>% 
+  dplyr::filter(Time > 0)
+temp <- survSplit(Surv(time = Time, event = Event) ~ . , cut = 180,
+                  data = base_df1_dev[,2:18], 
+                  episode = "epoch") 
+temp180 <- subset(temp, epoch == 1)  # only the first 180 day
+
+base_df1_val <- base_df1_val %>% 
+  dplyr::filter(Time > 0) ## set follow-up > 0
+val_temp <- survSplit(Surv(time = Time, event = Event) ~ . , cut = 180,
+                  data = base_df1_val[,2:18], 
+                  episode = "epoch")
+val_temp180 <- subset(val_temp, epoch == 1) # only the first 180 day
+val_temp180$Event <- as.integer(val_temp180$Event)-1
+val_temp180$Event <- ifelse(val_temp180$Event == 0, 1, 0); table(val_temp180$Event)
+```
+
+## Model develop
+```{r}
+colnames(base_df1_dev)
+str(base_df1_dev)
+head(temp180$Event)
+
+temp180$Event <- as.integer(temp180$Event)-1
+temp180$Event <- ifelse(temp180$Event == 0, 1, 0); table(temp180$Event)
+efit1 <- coxph(Surv(Time, Event) ~ age + sex + ICU + oxygen + Tiff + vacc + ThrombEvent + LOS + education + DM + MRI + BMI,
+               data = temp180, 
+               x = T, 
+               y = T)
+summary(efit1)
+
+# Add linear predictor in the validation set
+val_temp180$lp <- predict(efit1, newdata = val_temp180)
+harrell_C_val_temp180 <- concordance(Surv(Time, Event) ~ lp, 
+                               val_temp180, 
+                               reverse = TRUE)
+summary(harrell_C_val_temp180)
+```
+
